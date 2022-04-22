@@ -9,8 +9,9 @@ from predicates.errors import NotInStateException
 from rclpy.action import ActionClient
 from rclpy.action.client import ClientGoalHandle
 from rclpy.publisher import Publisher
-from ur_tools_msgs.action import URScriptControl
+from ur_controller_msgs.action import URControl
 from std_srvs.srv import Trigger
+from robotiq_2f_msgs.msg import MeasuredState
 # from viz_tools_msgs.srv import ManipulateDynamicMarker
 import random
 
@@ -43,13 +44,18 @@ class Runner(Node):
         self.model: Model = the_model()
         self.state: State = self.model.initial_state
         self.prev_state = self.state
+        self.lock_done = False
         self.lock_waiting = False
+        self.open_done = False
+        self.open_waiting = False
+        self.close_done = False
+        self.close_waiting = False
         self.upd_state(runner_goal, None)
         self.upd_state(runner_plan, None)
         self.upd_state(step_in_plan, None)
         self.upd_state(plan_status, None)
 
-        self.ur_robot_action_client = ActionClient(self, URScriptControl, '/ur_script_controller')
+        self.ur_robot_action_client = ActionClient(self, URControl, '/ur_control')
         self.robot_action_goal_handle: Optional[ClientGoalHandle] = None
 
         ## We will not use the goal topic. Should be defind using the state
@@ -75,6 +81,12 @@ class Runner(Node):
             msg_type = String,
             topic = '/hands_gesture',
             callback = self.gesture_callback,
+            qos_profile = 10)
+    
+        self.create_subscription(
+            msg_type = MeasuredState,
+            topic = '/robotiq_2f_measured',
+            callback = self.gripper_callback,
             qos_profile = 10)
 
         self.pub_opc: Publisher = self.create_publisher(
@@ -105,6 +117,12 @@ class Runner(Node):
         listen to gestures
         """
         self.upd_state('gesture', msg.data)
+        
+    def gripper_callback(self, msg: MeasuredState):
+        """
+        listen to gestures
+        """
+        self.upd_state('gripper', msg.measured)
 
     def set_opc_callback(self, msg: String):
         """
@@ -149,12 +167,12 @@ class Runner(Node):
             self.upd_state('robot_state', "initial")
         elif run and self.robot_action_goal_handle is None: 
             print("start action")
-            goal_msg = URScriptControl.Goal()
+            goal_msg = URControl.Goal()
             goal_msg.command = self.state.get('robot_command')
             goal_msg.velocity = self.state.get('robot_velocity')
             goal_msg.acceleration = self.state.get('robot_acceleration')
-            goal_msg.goal_feature_name = self.state.get('robot_goal_frame')
-            goal_msg.tcp_name = self.state.get('robot_tcp_frame')
+            goal_msg.goal_feature_id = self.state.get('robot_goal_frame')
+            goal_msg.tcp_id = self.state.get('robot_tcp_frame')
 
             print("waiting action")
             if self.ur_robot_action_client.wait_for_server(2):
@@ -215,6 +233,62 @@ class Runner(Node):
             print(f"The locked service did not like the call. Check log in simulator window")
         self.lock_done = result
         self.upd_state('lock_done', self.lock_done)
+        
+        
+    def gripper_open_service(self):
+        run: bool = self.state.get('open')
+        if run and not self.open_done and not self.open_waiting:
+            self.open_waiting = True
+            print("waiting for service")
+            service = self.create_client(Trigger, "/robotiq_2f_open")
+            service.wait_for_service()
+            print("Service ready")
+            msg = Trigger.Request()
+
+            resp = service.call_async(msg)
+            resp.add_done_callback(self.open_done_callback)
+            
+        elif not run and self.open_done:
+            self.open_done = False
+
+        self.upd_state('open_done', self.open_done)
+    
+    def open_done_callback(self, future):
+        print("WE opened IT")
+        self.open_waiting = False
+        result = future.result().success
+        if not result:
+            print(f"The open service did not like the call. Check log in simulator window")
+        self.open_done = result
+        self.upd_state('open_done', self.open_done)
+        
+        
+    def gripper_close_service(self):
+        run: bool = self.state.get('close')
+        if run and not self.close_done and not self.close_waiting:
+            self.close_waiting = True
+            print("waiting for service")
+            service = self.create_client(Trigger, "/robotiq_2f_close")
+            service.wait_for_service()
+            print("Service ready")
+            msg = Trigger.Request()
+
+            resp = service.call_async(msg)
+            resp.add_done_callback(self.close_done_callback)
+            
+        elif not run and self.close_done:
+            self.close_done = False
+
+        self.upd_state('close_done', self.close_done)
+    
+    def close_done_callback(self, future):
+        print("WE closed IT")
+        self.close_waiting = False
+        result = future.result().success
+        if not result:
+            print(f"The close service did not like the call. Check log in simulator window")
+        self.close_done = result
+        self.upd_state('close_done', self.close_done)
 
 
     def send_to_opc(self):
@@ -272,7 +346,7 @@ class Runner(Node):
 
         # here we call the ticker. Change the pre_start parameter to true when
         # you want to prestart
-        self.state = tick_the_runner(self.state, self.model, True)
+        self.state = tick_the_runner(self.state, self.model, False)
 
         
         
@@ -281,6 +355,8 @@ class Runner(Node):
         self.send_ur_action_goal()
         # self.send_marker_service()
         self.lock_marker_service()
+        self.gripper_open_service()
+        self.gripper_close_service()
         state_json = json.dumps(self.state.state)
         self.pub_state.publish(String(data = state_json))
         self.send_to_opc()
