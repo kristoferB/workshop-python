@@ -33,6 +33,9 @@ def the_model() -> Model:
         robot_goal_frame = 'unknown',   # where to go with the tool tcp
         robot_tcp_frame = 'robotiq_2f_tcp', # the tool tcp to use
         gesture = 'unknown',
+        frame_exists = False,
+        frame_locked = False,
+        trigger_lock_frames = False,
 
         bool_to_plc_1 = False,
         bool_to_plc_2 = False,
@@ -81,8 +84,9 @@ def the_model() -> Model:
         #estimated
         robotiq_2f_tcp_occ = False, # If a suction cup is occupied or not
         suction_cup_2_occ = False,
-        cyl_at_pose_1 = True,
+        cyl_at_pose_1 = False,
         cyl_at_pose_2 = False,
+        cyl_at_locked_aruco = False,
 
         arucos_locked = False,
         trigger_goal_pos1 = False,
@@ -91,15 +95,46 @@ def the_model() -> Model:
 
     ops = {}
 
-    # move to pose_1
-    ops[f"move_to_pick_pos_1"] = Operation(
-        name = f"move_to_pick_pos_1",
+    # load cylinder
+    ops[f"load_cylinder"] = Operation(
+        name = f"load_cylinder",
         precondition = Transition("pre", 
-            g(f"!robot_run && robot_state == initial && robot_pose == pose_1"), 
-            a(f"robot_command = move_j, robot_run, robot_goal_frame <- pick_pos_1")),
+            AlwaysTrue(), 
+            a(f"bool_to_plc_1, trigger_lock_frames")),
+        postcondition = Transition("post", 
+            g(f"bool_from_plc_2"), 
+            a(f"cyl_at_pose_1, !bool_to_plc_1")
+        ),
+        effects = a(f"bool_from_plc_2"),
+        # to run ransition
+        to_run = Transition("run", 
+            g(f"bool_from_plc_1"),
+            () 
+        )
+    )
+
+    # move to pose_1
+    ops[f"move_to_pose_1"] = Operation(
+        name = f"move_to_pose_1",
+        precondition = Transition("pre", 
+            g(f"!robot_run && robot_state == initial && robot_pose == above_pose_1 && gripper == opened"), 
+            a(f"robot_command = move_j, robot_run, robot_goal_frame <- pose_1")),
         postcondition = Transition("post", 
             g(f"robot_state == done"), 
-            a(f"!robot_run, robot_pose <- pick_pos_1")),
+            a(f"!robot_run, robot_pose <- pose_1")),
+        effects = (),
+        to_run = Transition.default()
+    )
+
+    # move to above pose_1
+    ops[f"move_to_above_pose_1"] = Operation(
+        name = f"move_to_above_pose_1",
+        precondition = Transition("pre", 
+            g(f"!robot_run && robot_state == initial && robot_pose == home_pose && gripper == opened && bool_from_plc_2"), 
+            a(f"robot_command = move_j, robot_run, robot_goal_frame <- above_pose_1")),
+        postcondition = Transition("post", 
+            g(f"robot_state == done"), 
+            a(f"!robot_run, robot_pose <- above_pose_1")),
         effects = (),
         to_run = Transition.default()
     )
@@ -117,15 +152,27 @@ def the_model() -> Model:
         to_run = Transition.default()
     )
 
-    # move to above_table
-    ops[f"move_to_pose_1"] = Operation(
-        name = f"move_to_pose_1",
+    # move to above_aruco
+    ops[f"move_to_above_locked_aruco"] = Operation(
+        name = f"move_to_above_locked_aruco",
         precondition = Transition("pre", 
-            g(f"!robot_run && robot_state == initial && robot_pose != pose_1"), 
-            a(f"robot_command = move_j, robot_run, robot_goal_frame <- pose_1")),
+            g(f"!robot_run && arucos_locked && robot_state == initial && robot_pose == home_pose"), 
+            a(f"robot_command = move_j, robot_run, robot_goal_frame <- above_locked_aruco")),
         postcondition = Transition("post", 
             g(f"robot_state == done"), 
-            a(f"!robot_run, robot_pose <- pose_1")),
+            a(f"!robot_run, robot_pose <- above_locked_aruco")),
+        effects = (),
+        to_run = Transition.default()
+    )
+
+    ops[f"move_to_home_pose"] = Operation(
+        name = f"move_to_home_pose",
+        precondition = Transition("pre", 
+            g(f"!robot_run && robot_state == initial && robot_pose != home_pose"), 
+            a(f"robot_command = move_j, robot_run, robot_goal_frame <- home_pose")),
+        postcondition = Transition("post", 
+            g(f"robot_state == done"), 
+            a(f"!robot_run, robot_pose <- home_pose")),
         effects = (),
         to_run = Transition.default()
     )
@@ -133,7 +180,7 @@ def the_model() -> Model:
     ops[f"pick_at_pose_1_with_robotiq_2f_tcp"] = Operation(
         name = f"pick_at_pose_1_with_robotiq_2f_tcp",
         precondition = Transition("pre", 
-            g(f"(robot_pose == pick_pos_1) && !robotiq_2f_tcp_occ && cyl_at_pose_1"), 
+            g(f"(robot_pose == pose_1) && !robotiq_2f_tcp_occ && cyl_at_pose_1 && gripper == opened"), 
             a(f"close")),
         postcondition = Transition("post", 
             g(f"gripper == gripping"), 
@@ -158,11 +205,23 @@ def the_model() -> Model:
     ops[f"place_at_pose_1_with_robotiq_2f_tcp"] = Operation(
         name = f"place_at_pose_1_with_robotiq_2f_tcp",
         precondition = Transition("pre", 
-            g(f"!robot_run && robot_state == initial && (robot_pose == pick_pos_1) && robotiq_2f_tcp_occ && !cyl_at_pose_1"), 
+            g(f"!robot_run && robot_state == initial && (robot_pose == pose_1) && robotiq_2f_tcp_occ && !cyl_at_pose_1"), 
             a(f"open")),
         postcondition = Transition("post", 
-            g(f"gripper == opended"), 
-            a(f"!open, robotiq_2f_tcp_occ, cyl_at_pose_1")),
+            g(f"gripper == opened"), 
+            a(f"!open, !robotiq_2f_tcp_occ, cyl_at_pose_1")),
+        effects = (),
+        to_run = Transition.default()
+    )
+
+    ops[f"place_at_locked_aruco_with_robotiq_2f_tcp"] = Operation(
+        name = f"place_at_locked_aruco_with_robotiq_2f_tcp",
+        precondition = Transition("pre", 
+            g(f"!robot_run && robot_state == initial && robot_pose == above_locked_aruco && arucos_locked && robotiq_2f_tcp_occ && !cyl_at_locked_aruco"), 
+            a(f"open")),
+        postcondition = Transition("post", 
+            g(f"gripper == opened"), 
+            a(f"!open, !robotiq_2f_tcp_occ, cyl_at_locked_aruco")),
         effects = (),
         to_run = Transition.default()
     )
@@ -175,20 +234,26 @@ def the_model() -> Model:
             a(f"open")),
         postcondition = Transition("post", 
             g(f"gripper == opened"), 
-            a(f"!open, robotiq_2f_tcp_occ, cyl_at_pose_2")),
+            a(f"!open, !robotiq_2f_tcp_occ, cyl_at_pose_2")),
         effects = (),
         to_run = Transition.default()
     )
 
-
-
     ops[f"lock_arucos"]= Operation(
         name=f"lock_arucos",
-        precondition=Transition("pre", g(f"!arucos_locked && robot_pose == camera"), a("lock_run")),
-        postcondition=Transition("post", g(f"lock_done"), a("!lock_run, arucos_locked")),
-        effects= (),
+        precondition=Transition("pre", g(f"!arucos_locked && robot_pose == home_pose"), a("trigger_lock_frames")),
+        postcondition=Transition("post", g(f"frame_locked"), a("!lock_run, arucos_locked")),
+        effects = (),
         to_run = Transition.default()
     )
+
+    # ops[f"lock_arucos"]= Operation(
+    #     name=f"lock_arucos",
+    #     precondition=Transition("pre", g(f"!arucos_locked && robot_pose == camera"), a("lock_run")),
+    #     postcondition=Transition("post", g(f"lock_done"), a("!lock_run, arucos_locked")),
+    #     effects= (),
+    #     to_run = Transition.default()
+    # )
 
     # To be used to run "free" transitions. 
     # Example of setting a goal

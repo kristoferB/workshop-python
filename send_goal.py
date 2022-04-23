@@ -20,10 +20,12 @@ def main(args=None):
     # set a state here to force replan
     pos = {
         "replan": True, 
-        "cyl_at_pose_1": True, 
-        "cyl_at_pose_2": False, 
-        "goal_as_string": "cyl_at_pose_2"  # write a guard as a string that the guard parser can read
+        # "cyl_at_pose_1": False, 
+        # "cyl_at_pose_2": False, 
+        "goal_as_string": "cyl_at_locked_aruco"  # write a guard as a string that the guard parser can read
     }
+
+    # robot_pose == pose_1
 
     msg.data = json.dumps(pos)
     publisher.publish(msg)
