@@ -393,7 +393,7 @@ class Runner(Node):
         # below, we are publishing the command variables to the simulation via ros
         self.send_ur_action_goal()
         # self.send_marker_service()
-        self.lock_marker_service()
+        self.lock_aruco_service()
         self.gripper_open_service()
         self.gripper_close_service()
         state_json = json.dumps(self.state.state)
