@@ -36,20 +36,22 @@ plan_status: str = "plan_status"
 class Runner(Node):
     # marker_done: bool = False
     cube_id = 1
-    lock_done = False
-    lock_run = False
+    # lock_done = False
+    # lock_run = False
+
     
     def __init__(self):
         super().__init__('the_runner')
         self.model: Model = the_model()
         self.state: State = self.model.initial_state
         self.prev_state = self.state
-        self.lock_done = False
-        self.lock_waiting = False
+        self.frame_exists = False
+        self.frame_locked = False
         self.open_done = False
         self.open_waiting = False
         self.close_done = False
         self.close_waiting = False
+        self.trigger_lock_frames = False
         self.upd_state(runner_goal, None)
         self.upd_state(runner_plan, None)
         self.upd_state(step_in_plan, None)
@@ -75,6 +77,18 @@ class Runner(Node):
             msg_type = String,
             topic = '/opc_measured',
             callback = self.set_opc_callback,
+            qos_profile = 10)
+
+        self.create_subscription(
+            msg_type = Bool,
+            topic = '/frame_exists',
+            callback = self.frame_exists_callback,
+            qos_profile = 10)
+        
+        self.create_subscription(
+            msg_type = Bool,
+            topic = '/frame_locked',
+            callback = self.frame_locked_callback,
             qos_profile = 10)
 
         self.create_subscription(
@@ -123,6 +137,18 @@ class Runner(Node):
         listen to gestures
         """
         self.upd_state('gripper', msg.measured)
+
+    def frame_exists_callback(self, msg: Bool):
+        """
+        listen to frame exists
+        """
+        self.upd_state('frame_exists', msg.data)
+
+    def frame_locked_callback(self, msg: Bool):
+        """
+        listen to frame locked
+        """
+        self.upd_state('frame_locked', msg.data)
 
     def set_opc_callback(self, msg: String):
         """
@@ -206,33 +232,46 @@ class Runner(Node):
         self.upd_state('robot_pose', self.state.get('robot_goal_frame'))
         self.robot_action_goal_handle = None
 
-
-    def lock_marker_service(self):
-        run: bool = self.state.get('lock_run')
-        if run and not self.lock_done and not self.lock_waiting:
-            self.lock_waiting = True
+    def lock_aruco_service(self):
+        trigger_lock_frames: bool = self.state.get('trigger_lock_frames')
+        if trigger_lock_frames:
             print("waiting for service")
-            service = self.create_client(Trigger, "/lock_arucos")
+            service = self.create_client(Trigger, "/lock_frames")
             service.wait_for_service()
             print("Service ready")
             msg = Trigger.Request()
-
             resp = service.call_async(msg)
-            resp.add_done_callback(self.locked_done_callback)
-            
-        elif not run and self.lock_done:
-            self.lock_done = False
+        
+        self.upd_state('trigger_lock_frames', False)
+        self.upd_state('lock_done', True)
 
-        self.upd_state('lock_done', self.lock_done)
+
+    # def lock_marker_service(self):
+    #     run: bool = self.state.get('lock_run')
+    #     if run and not self.lock_done and not self.lock_waiting:
+    #         self.lock_waiting = True
+    #         print("waiting for service")
+    #         service = self.create_client(Trigger, "/lock_arucos")
+    #         service.wait_for_service()
+    #         print("Service ready")
+    #         msg = Trigger.Request()
+
+    #         resp = service.call_async(msg)
+    #         resp.add_done_callback(self.locked_done_callback)
+            
+    #     elif not run and self.lock_done:
+    #         self.lock_done = False
+
+    #     self.upd_state('lock_done', self.lock_done)
     
-    def locked_done_callback(self, future):
-        print("WE LOCKED IT")
-        self.lock_waiting = False
-        result = future.result().success
-        if not result:
-            print(f"The locked service did not like the call. Check log in simulator window")
-        self.lock_done = result
-        self.upd_state('lock_done', self.lock_done)
+    # def locked_done_callback(self, future):
+    #     print("WE LOCKED IT")
+    #     self.lock_waiting = False
+    #     result = future.result().success
+    #     if not result:
+    #         print(f"The locked service did not like the call. Check log in simulator window")
+    #     self.lock_done = result
+    #     self.upd_state('lock_done', self.lock_done)
         
         
     def gripper_open_service(self):
