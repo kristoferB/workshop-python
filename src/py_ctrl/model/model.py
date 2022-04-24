@@ -33,6 +33,9 @@ def the_model() -> Model:
         robot_goal_frame = 'unknown',   # where to go with the tool tcp
         robot_tcp_frame = 'robotiq_2f_tcp', # the tool tcp to use
         gesture = 'unknown',
+        frame_exists = False,
+        frame_locked = False,
+        trigger_lock_frames = False,
 
         bool_to_plc_1 = False,
         bool_to_plc_2 = False,
@@ -81,8 +84,9 @@ def the_model() -> Model:
         #estimated
         robotiq_2f_tcp_occ = False, # If a suction cup is occupied or not
         suction_cup_2_occ = False,
-        cyl_at_pose_1 = True,
+        cyl_at_pose_1 = False,
         cyl_at_pose_2 = False,
+        cyl_at_locked_aruco = False,
 
         arucos_locked = False,
         trigger_goal_pos1 = False,
