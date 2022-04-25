@@ -49,8 +49,9 @@ def the_model() -> Model:
         replan = False,
         lock_run = False,
 
-        aruco_run = False,
-        lock_done = False,
+        frame_exists = False,
+        frame_locked = False,
+        trigger_lock_frames = False,
 
         # measured variables
         robot_state = "initial",  # "exec", "done", "failed" 
@@ -221,11 +222,11 @@ def the_model() -> Model:
 
     ops[f"lock_arucos"]= Operation(
         name=f"lock_arucos",
-        precondition=Transition("pre", g(f"!arucos_locked && robot_pose == camera"), a("lock_run")),
-        postcondition=Transition("post", g(f"lock_done"), a("!lock_run, arucos_locked")),
-        effects= (),
+        precondition=Transition("pre", g(f"!arucos_locked && robot_pose == home_pose"), a("trigger_lock_frames")),
+        postcondition=Transition("post", g(f"frame_locked"), a("!lock_run, arucos_locked")),
+        effects = (),
         to_run = Transition.default()
-    )
+    )  
 
     # To be used to run "free" transitions. 
     # Example of setting a goal

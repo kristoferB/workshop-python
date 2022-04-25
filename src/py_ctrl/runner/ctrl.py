@@ -46,6 +46,9 @@ class Runner(Node):
         self.prev_state = self.state
         self.lock_done = False
         self.lock_waiting = False
+        
+        self.frame_exists = False
+        self.frame_locked = False
         self.open_done = False
         self.open_waiting = False
         self.close_done = False
@@ -94,6 +97,21 @@ class Runner(Node):
             topic = '/opc_command',
             qos_profile = 10,
         )
+
+        self.frame_exists = False
+        self.frame_locked = False
+        
+        self.create_subscription(
+            msg_type = Bool,
+            topic = '/frame_exists',
+            callback = self.frame_exists_callback,
+            qos_profile = 10)
+        
+        self.create_subscription(
+            msg_type = Bool,
+            topic = '/frame_locked',
+            callback = self.frame_locked_callback,
+            qos_profile = 10)
 
         self.timer = self.create_timer(0.1, self.ticker)
     
@@ -154,7 +172,31 @@ class Runner(Node):
             print(f"message is bad: {msg.data}")
             print(e)
 
-            
+    def frame_exists_callback(self, msg: Bool):
+        """
+        listen to frame exists
+        """
+        self.upd_state('frame_exists', msg.data)
+
+    def frame_locked_callback(self, msg: Bool):
+        """
+        listen to frame locked
+        """
+        self.upd_state('frame_locked', msg.data)
+        
+        
+    def lock_aruco_service(self):
+        trigger_lock_frames: bool = self.state.get('trigger_lock_frames')
+        if trigger_lock_frames:
+            print("waiting for service")
+            service = self.create_client(Trigger, "/lock_frames")
+            service.wait_for_service()
+            print("Service ready")
+            msg = Trigger.Request()
+            resp = service.call_async(msg)
+        
+        self.upd_state('trigger_lock_frames', False)
+        self.upd_state('lock_done', True)           
 
     def send_ur_action_goal(self):
         run: bool = self.state.get('robot_run')
